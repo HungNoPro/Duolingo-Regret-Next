@@ -9,8 +9,6 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import java.io.File
-import java.io.FileInputStream
 import java.time.ZoneId
 import java.util.TimeZone
 
@@ -31,7 +29,7 @@ class MainHook : IXposedHookLoadPackage {
 
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
-                    val (targetTz, debugMsg) = readTargetTimezoneWithDebug(context)
+                    val targetTz = getSystemPropTimezone()
 
                     applyHooks(lpparam.classLoader, targetTz)
 
@@ -40,7 +38,7 @@ class MainHook : IXposedHookLoadPackage {
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(
                                 context,
-                                "[Hugo] $targetTz ($debugMsg)",
+                                "[Hugo] Múi giờ Duolingo: $targetTz",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -50,28 +48,22 @@ class MainHook : IXposedHookLoadPackage {
         )
     }
 
-    private fun readTargetTimezoneWithDebug(context: Context): Pair<String, String> {
-        val candidatePaths = listOf(
-            File("/sdcard/hugo_tz.txt"),
-            File("/storage/emulated/0/hugo_tz.txt"),
-            File(context.filesDir, "hugo_tz.txt"),
-            File(context.dataDir, "hugo_tz.txt")
-        )
-
-        for (file in candidatePaths) {
-            try {
-                if (file.exists() && file.canRead()) {
-                    val content = file.readText().trim()
-                    if (content.isNotEmpty() && isValidZone(content)) {
-                        return Pair(content, "OK từ ${file.absolutePath}")
-                    }
-                }
-            } catch (e: Throwable) {
-                return Pair("Pacific/Pago_Pago", "Lỗi đọc ${file.name}: ${e.message}")
+    private fun getSystemPropTimezone(): String {
+        return try {
+            val systemPropertiesClass = Class.forName("android.os.SystemProperties")
+            val getMethod = systemPropertiesClass.getMethod("get", String::class.java, String::class.java)
+            // Đọc property debug.* (property này được Android cho phép đọc tự do không bị chặn SELinux)
+            val tz = getMethod.invoke(null, "debug.hugo.duolingo.tz", "") as String
+            if (tz.isNotEmpty() && isValidZone(tz)) {
+                XposedBridge.log("[Hugo-Duolingo] Doc thanh cong tu SystemProperty: $tz")
+                tz
+            } else {
+                "Pacific/Pago_Pago"
             }
+        } catch (t: Throwable) {
+            XposedBridge.log("[Hugo-Duolingo] Loi SystemProperties: ${t.message}")
+            "Pacific/Pago_Pago"
         }
-
-        return Pair("Pacific/Pago_Pago", "Không tìm thấy hugo_tz.txt ở /sdcard")
     }
 
     private fun isValidZone(id: String): Boolean {
