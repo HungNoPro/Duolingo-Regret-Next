@@ -1,7 +1,8 @@
-package com.jakting.duolingo
+package com.hungnopro.duolingo
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
@@ -17,11 +18,16 @@ class ConfigProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
-        val sp = context?.getSharedPreferences("duolingo_regret_prefs", 0)
-        val timezone = sp?.getString("timezone_key", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
+        val ctx = context
+        var targetTz = "Pacific/Pago_Pago"
+
+        if (ctx != null) {
+            val sp = ctx.getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
+            targetTz = sp.getString("now_timezone", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
+        }
 
         val cursor = MatrixCursor(arrayOf("timezone"))
-        cursor.addRow(arrayOf(timezone))
+        cursor.addRow(arrayOf(targetTz))
         return cursor
     }
 
