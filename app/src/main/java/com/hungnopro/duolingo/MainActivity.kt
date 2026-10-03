@@ -199,18 +199,23 @@ class MainActivity : AppCompatActivity() {
         timeZoneItems.clear()
         val allIds = TimeZone.getAvailableIDs()
 
-        val grouped = allIds
-            .filter { it.contains("/") && !it.startsWith("Etc/") && !it.startsWith("SystemV/") }
-            .groupBy { TimeZone.getTimeZone(it).rawOffset }
+        // Giữ lại các ID thành phố hợp lệ và bổ sung Etc/GMT+12 cho mốc UTC-12
+        val filtered = allIds.filter { 
+            (it.contains("/") && !it.startsWith("SystemV/")) || it == "Etc/GMT+12"
+        }
+
+        val grouped = filtered.groupBy { TimeZone.getTimeZone(it).rawOffset }
 
         grouped.toSortedMap().forEach { (offsetMillis, ids) ->
+            // Chọn tên đại diện cho từng mốc
             val representativeId = ids.firstOrNull { id ->
+                id == "Etc/GMT+12" ||
                 id.contains("Pago_Pago") || id.contains("Honolulu") || id.contains("Anchorage") ||
                 id.contains("Los_Angeles") || id.contains("Denver") || id.contains("Chicago") ||
                 id.contains("New_York") || id.contains("London") || id.contains("Paris") ||
                 id.contains("Cairo") || id.contains("Dubai") || id.contains("Bangkok") ||
                 id.contains("Singapore") || id.contains("Tokyo") || id.contains("Sydney") ||
-                id.contains("Auckland")
+                id.contains("Auckland") || id.contains("Kiritimati")
             } ?: ids.first()
 
             val hours = offsetMillis / (1000 * 60 * 60)
@@ -218,10 +223,15 @@ class MainActivity : AppCompatActivity() {
             val sign = if (hours >= 0) "+" else "-"
             val formattedOffset = "[UTC$sign%02d:%02d]".format(Math.abs(hours), minutes)
 
+            val displayLabel = when (representativeId) {
+                "Etc/GMT+12" -> "$formattedOffset Baker Island (UTC-12)"
+                else -> "$formattedOffset $representativeId"
+            }
+
             timeZoneItems.add(
                 TimeZoneItem(
                     id = representativeId,
-                    displayName = "$formattedOffset $representativeId",
+                    displayName = displayLabel,
                     offsetMillis = offsetMillis
                 )
             )
