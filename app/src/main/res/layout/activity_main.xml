@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Duolingo Regret (Hugo Fork)"
+            android:text="Duolingo Regret Next"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -54,7 +54,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:textColor="?attr/colorPrimary"
-                    android:text="Thời gian đến khi qua ngày mới: ..."
+                    android:text="Hết ngày sau: ..."
                     android:textSize="14sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -74,7 +74,7 @@
                 android:inputType="text" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Các nút bấm tác vụ nhanh -->
+        <!-- Các nút bấm tắt -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -102,12 +102,13 @@
                 android:text="Đặt về giờ máy" />
         </LinearLayout>
 
+        <!-- Nút Áp dụng và Khởi động lại -->
         <Button
-            android:id="@+id/btn_apply"
+            android:id="@+id/btn_apply_and_restart"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Áp dụng múi giờ này" />
+            android:text="Áp dụng &amp; Mở lại Duolingo" />
 
     </LinearLayout>
 </ScrollView>
