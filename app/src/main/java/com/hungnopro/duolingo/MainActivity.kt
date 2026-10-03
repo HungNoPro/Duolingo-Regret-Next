@@ -54,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView.rootView) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
@@ -69,23 +69,21 @@ class MainActivity : AppCompatActivity() {
         val btnPresetPago = findViewById<Button>(R.id.btn_preset_pago)
         val btnPresetLocal = findViewById<Button>(R.id.btn_preset_local)
 
-        // 1. Tạo danh sách gọn (mỗi mốc UTC 1 đại diện)
         buildCompactTimeZoneList()
 
         val sp = getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
         val savedTz = sp.getString("now_timezone", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
         selectedZoneId = savedTz
 
-        activeZoneId = try {
-            ZoneId.of(savedTz)
+        try {
+            activeZoneId = ZoneId.of(savedTz)
         } catch (_: Exception) {
-            ZoneId.of("Pacific/Pago_Pago")
+            activeZoneId = ZoneId.of("Pacific/Pago_Pago")
         }
 
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, timeZoneItems)
         actvTimezone.setAdapter(adapter)
 
-        // Hiển thị tên đầy đủ trong ô input
         val currentItem = timeZoneItems.firstOrNull { it.id == savedTz }
         actvTimezone.setText(currentItem?.displayName ?: savedTz, false)
 
@@ -97,39 +95,26 @@ class MainActivity : AppCompatActivity() {
 
         // Bấm nút: Áp dụng và Mở lại Duolingo
         btnApplyRestart.setOnClickListener {
-            val rawText = actvTimezone.text.toString().trim()
-            val cleanId = extractCleanZoneId(rawText)
+            val textInput = actvTimezone.text.toString().trim()
+            val cleanId = resolveCleanZoneId(textInput)
 
-            if (isValidZoneId(cleanId)) {
-                selectedZoneId = cleanId
-                // Lưu vào SharedPreferences của app
-                sp.edit().putString("now_timezone", cleanId).apply()
-                
-                // CẬP NHẬT NGAY LẬP TỨC activeZoneId để đồng hồ giao diện đổi ngay!
+            selectedZoneId = cleanId
+            sp.edit().putString("now_timezone", cleanId).commit()
+
+            try {
                 activeZoneId = ZoneId.of(cleanId)
-                updateClocks()
+            } catch (_: Exception) {}
+            updateClocks()
 
-                // Gửi lệnh Root: Setprop hệ thống + Force Stop + Restart Duolingo
-                lifecycleScope.launch(Dispatchers.IO) {
-                    val isDone = applyTimezoneAndRestartDuolingo(cleanId)
-                    withContext(Dispatchers.Main) {
-                        if (isDone) {
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Đã lưu ($cleanId) & mở lại Duolingo!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Đã lưu ($cleanId) - Hãy cấp quyền Root!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+            lifecycleScope.launch(Dispatchers.IO) {
+                val ok = writeConfigAndRestart(cleanId)
+                withContext(Dispatchers.Main) {
+                    if (ok) {
+                        Toast.makeText(this@MainActivity, "Đã lưu ($cleanId) & mở Duolingo!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Chưa cấp quyền Root!", Toast.LENGTH_SHORT).show()
                     }
                 }
-            } else {
-                Toast.makeText(this, "Múi giờ không hợp lệ: $cleanId", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -141,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             btnApplyRestart.performClick()
         }
 
-        // Phím tắt về giờ mặc định của máy
+        // Phím tắt giờ máy
         btnPresetLocal.setOnClickListener {
             val localId = TimeZone.getDefault().id
             selectedZoneId = localId
@@ -161,18 +146,25 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(updateClockRunnable)
     }
 
-    private fun extractCleanZoneId(input: String): String {
+    private fun resolveCleanZoneId(input: String): String {
         val matched = timeZoneItems.firstOrNull { it.displayName == input || it.id == input }
         if (matched != null) return matched.id
 
-        // Nếu chuỗi có dạng "[UTC+07:00] Asia/Bangkok", bóc tách lấy ID phía sau
         if (input.contains(" ")) {
-            val parts = input.split(" ")
-            if (parts.size >= 2 && isValidZoneId(parts.last())) {
-                return parts.last()
-            }
+            val lastPart = input.substringAfterLast(" ").trim()
+            if (isValidZone(lastPart)) return lastPart
         }
-        return input
+        if (isValidZone(input)) return input
+        return selectedZoneId
+    }
+
+    private fun isValidZone(id: String): Boolean {
+        return try {
+            ZoneId.of(id)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun buildCompactTimeZoneList() {
@@ -208,31 +200,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun isValidZoneId(id: String): Boolean {
-        return try {
-            ZoneId.of(id)
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun applyTimezoneAndRestartDuolingo(tzId: String): Boolean {
+    /**
+     * Dùng Root ghi file cấu hình vào thẳng thư mục nội bộ của com.duolingo,
+     * sau đó buộc dừng và mở lại Duolingo.
+     */
+    private fun writeConfigAndRestart(tzId: String): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su")
             DataOutputStream(process.outputStream).use { os ->
-                // 1. Ghi múi giờ vào property toàn cục hệ thống (mọi app đều đọc được mà không lo SELinux)
-                os.writeBytes("setprop persist.hugo.duolingo.tz '$tzId'\n")
+                val targetFile = "/data/data/com.duolingo/hugo_tz.txt"
 
-                // 2. Ghi file phẳng dự phòng
-                os.writeBytes("echo '$tzId' > /data/local/tmp/hugo_tz.txt\n")
-                os.writeBytes("chmod 666 /data/local/tmp/hugo_tz.txt\n")
+                // 1. Ghi múi giờ trực tiếp vào thư mục nội bộ của chính Duolingo
+                os.writeBytes("echo -n '$tzId' > $targetFile\n")
+                os.writeBytes("chmod 666 $targetFile\n")
 
-                // 3. Buộc dừng Duolingo
+                // 2. Buộc dừng Duolingo
                 os.writeBytes("am force-stop com.duolingo\n")
                 os.writeBytes("sleep 1\n")
 
-                // 4. Mở lại Duolingo
+                // 3. Khởi chạy lại Duolingo
                 os.writeBytes("monkey -p com.duolingo -c android.intent.category.LAUNCHER 1\n")
                 os.writeBytes("exit\n")
                 os.flush()
