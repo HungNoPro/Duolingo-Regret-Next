@@ -18,7 +18,7 @@ class MainHook : IXposedHookLoadPackage {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != "com.duolingo") return
 
-        XposedBridge.log("[Hugo-Duolingo] Injected into com.duolingo process: ${lpparam.processName}")
+        XposedBridge.log("[Hugo-Duolingo] Injected into com.duolingo: ${lpparam.processName}")
 
         XposedHelpers.findAndHookMethod(
             "android.content.ContextWrapper",
@@ -30,8 +30,8 @@ class MainHook : IXposedHookLoadPackage {
 
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
-                    val targetTz = fetchTargetTimezone()
-                    XposedBridge.log("[Hugo-Duolingo] Múi giờ áp dụng cho Duolingo: $targetTz")
+                    val targetTz = fetchTargetTimezone(context)
+                    XposedBridge.log("[Hugo-Duolingo] Áp dụng Timezone: $targetTz")
 
                     applyHooks(lpparam.classLoader, targetTz)
 
@@ -50,26 +50,30 @@ class MainHook : IXposedHookLoadPackage {
         )
     }
 
-    private fun fetchTargetTimezone(): String {
-        // 1. Đọc từ SystemProperty hệ thống (Cực kỳ ổn định và nhanh)
+    private fun fetchTargetTimezone(context: Context): String {
+        // 1. Đọc từ thư mục private của chính Duolingo (/data/data/com.duolingo/hugo_tz.txt)
         try {
-            val getMethod = Class.forName("android.os.SystemProperties")
-                .getMethod("get", String::class.java, String::class.java)
-            val propTz = getMethod.invoke(null, "persist.hugo.duolingo.tz", "") as String
-            if (propTz.isNotEmpty() && isValidZone(propTz)) {
-                return propTz
+            val file = File(context.dataDir, "hugo_tz.txt")
+            if (file.exists()) {
+                val content = file.readText().trim()
+                if (content.isNotEmpty() && isValidZone(content)) {
+                    XposedBridge.log("[Hugo-Duolingo] Đọc hugo_tz.txt thành công: $content")
+                    return content
+                }
+            } else {
+                XposedBridge.log("[Hugo-Duolingo] Chưa tìm thấy file: ${file.absolutePath}")
             }
         } catch (e: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Lỗi đọc SystemProperties: ${e.message}")
+            XposedBridge.log("[Hugo-Duolingo] Lỗi đọc file dataDir: ${e.message}")
         }
 
-        // 2. Dự phòng đọc từ file /data/local/tmp/hugo_tz.txt
+        // 2. Dự phòng đường dẫn trực tiếp
         try {
-            val file = File("/data/local/tmp/hugo_tz.txt")
-            if (file.exists()) {
-                val fileTz = file.readText().trim()
-                if (fileTz.isNotEmpty() && isValidZone(fileTz)) {
-                    return fileTz
+            val directFile = File("/data/data/com.duolingo/hugo_tz.txt")
+            if (directFile.exists()) {
+                val content = directFile.readText().trim()
+                if (content.isNotEmpty() && isValidZone(content)) {
+                    return content
                 }
             }
         } catch (_: Throwable) {}
