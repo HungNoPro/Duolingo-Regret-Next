@@ -233,16 +233,23 @@ class MainActivity : AppCompatActivity() {
             val process = Runtime.getRuntime().exec("su")
             DataOutputStream(process.outputStream).use { os ->
                 val targetFile = "/data/data/com.duolingo/hugo_tz.txt"
+                val targetFileAlt = "/data/user/0/com.duolingo/hugo_tz.txt"
 
-                // 1. Tạo file và gán quyền trực tiếp trong thư mục dữ liệu Duolingo
-                os.writeBytes("echo -n '$tzId' > $targetFile\n")
-                os.writeBytes("chmod 666 $targetFile\n")
+                // 1. Lấy UID của Duolingo
+                os.writeBytes("DUO_UID=\$(stat -c '%u' /data/data/com.duolingo 2>/dev/null || echo '')\n")
 
-                // 2. Buộc dừng Duolingo
+                // 2. Ghi chuỗi Timezone trực tiếp vào cả 2 đường dẫn (đảm bảo không trượt)
+                os.writeBytes("printf '%s' '$tzId' > $targetFile\n")
+                os.writeBytes("printf '%s' '$tzId' > $targetFileAlt\n")
+
+                // 3. Phân quyền toàn quyền và trả quyền sở hữu cho Duolingo
+                os.writeBytes("chmod 666 $targetFile $targetFileAlt\n")
+                os.writeBytes("if [ -n \"\$DUO_UID\" ]; then chown \$DUO_UID:\$DUO_UID $targetFile $targetFileAlt; fi\n")
+                os.writeBytes("restorecon $targetFile $targetFileAlt\n")
+
+                // 4. Force stop và khởi chạy lại Duolingo
                 os.writeBytes("am force-stop com.duolingo\n")
                 os.writeBytes("sleep 1\n")
-
-                // 3. Khởi chạy lại Duolingo
                 os.writeBytes("monkey -p com.duolingo -c android.intent.category.LAUNCHER 1\n")
                 os.writeBytes("exit\n")
                 os.flush()
@@ -252,7 +259,6 @@ class MainActivity : AppCompatActivity() {
             false
         }
     }
-
     private fun updateClocks() {
         val nowDevice = ZonedDateTime.now()
         val nowHook = ZonedDateTime.now(activeZoneId)
