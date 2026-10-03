@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Cấp quyền để các app khác và hệ thống nhìn thấy Provider -->
+    <queries>
+        <package android:name="com.duolingo" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Duolingo Regret Hugo"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar">
 
@@ -28,10 +32,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Bắt buộc exported=true, grantUriPermissions=true -->
         <provider
             android:name=".ConfigProvider"
             android:authorities="com.hungnopro.duolingo.provider"
             android:exported="true"
+            android:grantUriPermissions="true"
             android:multiprocess="true" />
 
     </application>
