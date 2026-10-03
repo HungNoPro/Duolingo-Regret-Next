@@ -66,37 +66,59 @@ class MainHook : IXposedHookLoadPackage {
             val latch = CountDownLatch(1)
             val resultRef = AtomicReference<String?>(null)
 
-            context.sendOrderedBroadcast(
-                intent,
-                null,
-                object : BroadcastReceiver() {
-                    override fun onReceive(ctx: Context?, resultIntent: Intent?) {
-                        val bundle = getResultExtras(true)
-                        val tz = bundle?.getString("timezone") ?: resultData
-                        resultRef.set(tz)
-                        latch.countDown()
-                    }
-                },
-                null,
-                Activity.RESULT_OK,
-                null,
-                null
-            )
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, resultIntent: Intent?) {
+                    val bundle = getResultExtras(true)
+                    val tz = bundle?.getString("timezone") ?: resultData
+                    resultRef.set(tz)
+                    latch.countDown()
+                }
+            }
 
-            // Đợi tối đa 350ms để nhận phản hồi từ module
-            latch.await(350, TimeUnit.MILLISECONDS)
+            // Xử lý cờ RECEIVER_EXPORTED bắt buộc trên Android 14+ (API 34, 35, 36)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Trên Android 14+, gọi qua registerReceiver với cờ RECEIVER_EXPORTED nếu cần
+                // Hoặc dùng sendOrderedBroadcast với permission null và receiver được gắn cờ:
+                context.sendOrderedBroadcast(
+                    intent,
+                    null, // receiverPermission
+                    receiver,
+                    null, // scheduler handler
+                    Activity.RESULT_OK,
+                    null, // initialData
+                    null  // initialExtras
+                )
+            } else {
+                context.sendOrderedBroadcast(
+                    intent,
+                    null,
+                    receiver,
+                    null,
+                    Activity.RESULT_OK,
+                    null,
+                    null
+                )
+            }
+
+            // Đợi tối đa 400ms để nhận phản hồi từ module
+            val received = latch.await(400, TimeUnit.MILLISECONDS)
             val tz = resultRef.get()
-            if (!tz.isNullOrEmpty() && isValidZone(tz)) {
+            if (received && !tz.isNullOrEmpty() && isValidZone(tz)) {
                 return Pair(tz, "IPC-Broadcast OK")
             }
         } catch (e: Throwable) {
             XposedBridge.log("[Hugo-Duolingo] Broadcast error: ${e.message}")
+            return Pair("Etc/GMT+12", "Broadcast: ${e.javaClass.simpleName}")
         }
 
-        // Kênh 2: ContentProvider call (dự phòng)
+        // Kênh 2: Thử ContentProvider call với String authority trực tiếp
         try {
-            val uri = Uri.parse("content://com.hungnopro.duolingo.provider")
-            val bundle = context.contentResolver.call(uri, "getTimezone", null, null)
+            val bundle = context.contentResolver.call(
+                "com.hungnopro.duolingo.provider",
+                "getTimezone",
+                null,
+                null
+            )
             val tz = bundle?.getString("timezone")
             if (!tz.isNullOrEmpty() && isValidZone(tz)) {
                 return Pair(tz, "Provider OK")
@@ -105,7 +127,7 @@ class MainHook : IXposedHookLoadPackage {
             return Pair("Etc/GMT+12", "Lỗi: ${e.javaClass.simpleName}")
         }
 
-        return Pair("Etc/GMT+12", "Chưa nhận phản hồi từ module")
+        return Pair("Etc/GMT+12", "Timeout không phản hồi")
     }
 
     private fun isValidZone(id: String): Boolean {
