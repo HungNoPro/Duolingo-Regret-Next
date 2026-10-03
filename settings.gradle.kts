@@ -13,3 +13,6 @@ dependencyResolutionManagement {
         maven { url = uri("https://api.xposed.info/") }
     }
 }
+
+rootProject.name = "Duolingo-Regret-Next"
+include(":app")
