@@ -53,20 +53,31 @@ class MainHook : IXposedHookLoadPackage {
     }
 
     private fun resolveTimezone(context: Context): String {
-        // Cách 1: Thử gọi ContentProvider thông qua Binder IPC / multiprocess
+        val authority = "com.hungnopro.duolingo.provider"
+
+        // 1. Thử gọi trực tiếp bằng String authority (Chuẩn Android 10 -> 16)
         try {
-            val uri = Uri.parse("content://com.hungnopro.duolingo.provider")
-            val bundle = context.contentResolver.call(uri, "getTimezone", null, null)
+            val bundle = context.contentResolver.call(authority, "getTimezone", null, null)
             val tzFromProvider = bundle?.getString("timezone")
             if (!tzFromProvider.isNullOrEmpty() && isValidZone(tzFromProvider)) {
-                XposedBridge.log("[Hugo-Duolingo] Nạp qua ContentProvider thành công: $tzFromProvider")
+                XposedBridge.log("[Hugo-Duolingo] Provider trả về thành công: $tzFromProvider")
                 return tzFromProvider
             }
         } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Provider thất bại: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Lỗi gọi call(authority): ${t.message}")
         }
 
-        // Cách 2: Tạo Package Context trực tiếp sang module (vượt Package Visibility trong tiến trình hooked)
+        // 2. Dự phòng bằng Uri
+        try {
+            val uri = Uri.parse("content://$authority")
+            val bundle = context.contentResolver.call(uri, "getTimezone", null, null)
+            val tzFromUri = bundle?.getString("timezone")
+            if (!tzFromUri.isNullOrEmpty() && isValidZone(tzFromUri)) {
+                return tzFromUri
+            }
+        } catch (_: Throwable) {}
+
+        // 3. Dự phòng qua createPackageContext
         try {
             val moduleContext = context.createPackageContext(
                 "com.hungnopro.duolingo",
@@ -80,25 +91,10 @@ class MainHook : IXposedHookLoadPackage {
             val sp = storageContext.getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
             val tzFromContext = sp.getString("now_timezone", null)
             if (!tzFromContext.isNullOrEmpty() && isValidZone(tzFromContext)) {
-                XposedBridge.log("[Hugo-Duolingo] Nạp qua Module Context thành công: $tzFromContext")
                 return tzFromContext
-            }
-        } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] createPackageContext thất bại: ${t.message}")
-        }
-
-        // Cách 3: XSharedPreferences dự phòng cho LSPosed trên Android đời cũ
-        try {
-            val xsp = XSharedPreferences("com.hungnopro.duolingo", "hugo_duolingo")
-            xsp.reload()
-            val tzFromXsp = xsp.getString("now_timezone", null)
-            if (!tzFromXsp.isNullOrEmpty() && isValidZone(tzFromXsp)) {
-                XposedBridge.log("[Hugo-Duolingo] Nạp qua XSharedPreferences thành công: $tzFromXsp")
-                return tzFromXsp
             }
         } catch (_: Throwable) {}
 
-        // Fallback mặc định
         return "Etc/GMT+12"
     }
 
