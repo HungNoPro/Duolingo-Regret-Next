@@ -1,4 +1,4 @@
-name: Build Release APK
+name: Build Debug APK
 
 on:
   push:
@@ -19,17 +19,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
       - name: Make Gradlew Executable
         run: chmod +x ./gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew assembleDebug
+      - name: Build Debug APK with Gradle
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK Artifact
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Duolingo-Regret-Patched
-          path: app/build/outputs/apk/release/*.apk
+          name: Duolingo-Regret-Debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
