@@ -1,4 +1,4 @@
-package com.jakting.duolingo
+package com.hungnopro.duolingo
 
 import android.content.Context
 import android.database.Cursor
@@ -19,9 +19,8 @@ class MainHook : IXposedHookLoadPackage {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != "com.duolingo") return
 
-        XposedBridge.log("[Duolingo-Regret] Injected into com.duolingo process: ${lpparam.processName}")
+        XposedBridge.log("[Hugo-Duolingo] Injected into com.duolingo: ${lpparam.processName}")
 
-        // Hook vào ContextWrapper để lấy Context sớm nhất
         XposedHelpers.findAndHookMethod(
             "android.content.ContextWrapper",
             lpparam.classLoader,
@@ -33,17 +32,15 @@ class MainHook : IXposedHookLoadPackage {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
                     val targetTz = fetchCustomTimezone(context)
-                    
-                    // Thực hiện hook thay đổi timezone
+
                     applyHooks(lpparam.classLoader, targetTz)
 
-                    // Hiển thị Toast thông báo trên Main Thread (chỉ hiện 1 lần khi app mở)
                     if (!isToastShown) {
                         isToastShown = true
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(
                                 context,
-                                "Duolingo Regret: Đã chuyển múi giờ sang $targetTz",
+                                "[Hugo] Múi giờ Duolingo: $targetTz",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -55,7 +52,7 @@ class MainHook : IXposedHookLoadPackage {
 
     private fun fetchCustomTimezone(context: Context): String {
         return try {
-            val uri = Uri.parse("content://com.jakting.duolingo.provider")
+            val uri = Uri.parse("content://com.hungnopro.duolingo.provider")
             val cursor: Cursor? = context.contentResolver.query(uri, null, null, null, null)
             var tz = "Pacific/Pago_Pago"
             cursor?.use {
@@ -65,7 +62,7 @@ class MainHook : IXposedHookLoadPackage {
             }
             tz
         } catch (e: Throwable) {
-            XposedBridge.log("[Duolingo-Regret] Error reading provider: ${e.message}")
+            XposedBridge.log("[Hugo-Duolingo] Lỗi đọc provider: ${e.message}")
             "Pacific/Pago_Pago"
         }
     }
@@ -73,7 +70,7 @@ class MainHook : IXposedHookLoadPackage {
     private fun applyHooks(classLoader: ClassLoader, tzId: String) {
         val spoofedTz = TimeZone.getTimeZone(tzId)
 
-        // 1. Hook java.util.TimeZone.getDefault()
+        // 1. Hook java.util.TimeZone
         try {
             XposedHelpers.findAndHookMethod(
                 "java.util.TimeZone",
@@ -86,10 +83,10 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Duolingo-Regret] Hook java.util.TimeZone failed: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone thất bại: ${t.message}")
         }
 
-        // 2. Hook java.time.ZoneId.systemDefault()
+        // 2. Hook java.time.ZoneId
         try {
             val spoofedZoneId = ZoneId.of(tzId)
             XposedHelpers.findAndHookMethod(
@@ -103,7 +100,7 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Duolingo-Regret] Hook java.time.ZoneId failed: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId thất bại: ${t.message}")
         }
     }
 }
