@@ -1,45 +1,46 @@
 package com.hungnopro.duolingo
 
-import android.content.Context
-import android.database.Cursor
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
-import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage
+import com.highcapable.yukihookapi.annotation.xposed.InjectYukiHookWithXposed
+import com.highcapable.yukihookapi.hook.factory.configs
+import com.highcapable.yukihookapi.hook.factory.encase
+import com.highcapable.yukihookapi.hook.factory.method
+import com.highcapable.yukihookapi.hook.factory.prefs
+import com.highcapable.yukihookapi.hook.factory.toClass
+import com.highcapable.yukihookapi.hook.log.YLog
+import com.highcapable.yukihookapi.hook.xposed.proxy.IYukiHookXposedInit
 import java.time.ZoneId
 import java.util.TimeZone
 
-class MainHook : IXposedHookLoadPackage {
+@InjectYukiHookWithXposed
+class MainHook : IYukiHookXposedInit {
 
-    override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (lpparam.packageName != "com.duolingo") return
+    override fun onInit() = configs {
+        isDebug = true
+    }
 
-        XposedBridge.log("[Hugo-Duolingo] Injected into com.duolingo: ${lpparam.processName}")
+    override fun onHook() = encase {
+        loadApp("com.duolingo") {
+            // Đọc cấu hình từ file hugo_duolingo qua kênh YukiHookPrefs
+            val targetTz = prefs("hugo_duolingo").getString("now_timezone", "Pacific/Pago_Pago")
+            YLog.info("[Hugo-Duolingo] Đã nhận Target Timezone: $targetTz")
 
-        XposedHelpers.findAndHookMethod(
-            "android.content.ContextWrapper",
-            lpparam.classLoader,
-            "attachBaseContext",
-            Context::class.java,
-            object : XC_MethodHook() {
-                private var isToastShown = false
+            var isToastShown = false
 
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val context = param.args[0] as? Context ?: return
-                    val targetTz = fetchCustomTimezone(context)
-
-                    applyHooks(lpparam.classLoader, targetTz)
-
+            // 1. Hook Application/Activity để hiển thị Toast thông báo khi app mở
+            "android.app.Application".toClass().method {
+                name = "onCreate"
+                emptyParam()
+            }.hook {
+                after {
+                    val app = instance as? android.app.Application ?: return@after
                     if (!isToastShown) {
                         isToastShown = true
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(
-                                context,
+                                app.applicationContext,
                                 "[Hugo] Múi giờ Duolingo: $targetTz",
                                 Toast.LENGTH_LONG
                             ).show()
@@ -47,60 +48,26 @@ class MainHook : IXposedHookLoadPackage {
                     }
                 }
             }
-        )
-    }
 
-    private fun fetchCustomTimezone(context: Context): String {
-        return try {
-            val uri = Uri.parse("content://com.hungnopro.duolingo.provider")
-            val cursor: Cursor? = context.contentResolver.query(uri, null, null, null, null)
-            var tz = "Pacific/Pago_Pago"
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    tz = it.getString(it.getColumnIndexOrThrow("timezone"))
+            // 2. Hook java.util.TimeZone.getDefault()
+            "java.util.TimeZone".toClass().method {
+                name = "getDefault"
+                emptyParam()
+            }.hook {
+                after {
+                    result = TimeZone.getTimeZone(targetTz)
                 }
             }
-            tz
-        } catch (e: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Lỗi đọc provider: ${e.message}")
-            "Pacific/Pago_Pago"
-        }
-    }
 
-    private fun applyHooks(classLoader: ClassLoader, tzId: String) {
-        val spoofedTz = TimeZone.getTimeZone(tzId)
-
-        // 1. Hook java.util.TimeZone
-        try {
-            XposedHelpers.findAndHookMethod(
-                "java.util.TimeZone",
-                classLoader,
-                "getDefault",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        param.result = spoofedTz
-                    }
+            // 3. Hook java.time.ZoneId.systemDefault()
+            "java.time.ZoneId".toClass().method {
+                name = "systemDefault"
+                emptyParam()
+            }.hook {
+                after {
+                    result = ZoneId.of(targetTz)
                 }
-            )
-        } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone thất bại: ${t.message}")
-        }
-
-        // 2. Hook java.time.ZoneId
-        try {
-            val spoofedZoneId = ZoneId.of(tzId)
-            XposedHelpers.findAndHookMethod(
-                "java.time.ZoneId",
-                classLoader,
-                "systemDefault",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        param.result = spoofedZoneId
-                    }
-                }
-            )
-        } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId thất bại: ${t.message}")
+            }
         }
     }
 }
