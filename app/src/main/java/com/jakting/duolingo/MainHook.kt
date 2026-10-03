@@ -19,19 +19,19 @@ class MainHook : IXposedHookLoadPackage {
 
         // Lấy Context của Duolingo khi ứng dụng khởi chạy
         XposedHelpers.findAndHookMethod(
-            "android.app.Application",
-            lpparam.classLoader,
-            "onCreate",
-            object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val context = param.thisObject as? android.content.Context ?: return
-                    val targetTz = fetchCustomTimezone(context)
-                    XposedBridge.log("[Duolingo-Regret] Target timezone obtained: $targetTz")
-
-                    applyHooks(lpparam.classLoader, targetTz)
-                }
-            }
-        )
+    "android.content.ContextWrapper",
+    lpparam.classLoader,
+    "attachBaseContext",
+    android.content.Context::class.java,
+    object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam) {
+            val context = param.args[0] as? android.content.Context ?: return
+            val targetTz = fetchCustomTimezone(context)
+            XposedBridge.log("[Duolingo-Regret] Target timezone obtained: $targetTz")
+            applyHooks(lpparam.classLoader, targetTz)
+        }
+    }
+)
     }
 
     private fun fetchCustomTimezone(context: android.content.Context): String {
