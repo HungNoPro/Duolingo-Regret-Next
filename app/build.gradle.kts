@@ -5,15 +5,14 @@ plugins {
 }
 
 android {
-    namespace = "com.jakting.duolingo"
-    compileSdk = 35
+    namespace = "com.hungnopro.duolingo"
 
     defaultConfig {
-        applicationId = "com.jakting.duolingo"
-        minSdk = 29
-        targetSdk = 35
-        versionCode = 202501310
-        versionName = "2.0"
+        applicationId = "com.hungnopro.duolingo"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 3
+        versionName = "3.0"
     }
 
     buildTypes {
@@ -45,7 +44,5 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
     // 基础依赖
-    implementation(libs.yukihookapi.api)
-    ksp(libs.yukihookapi.ksp)
     compileOnly(libs.xposed.api)
 }
