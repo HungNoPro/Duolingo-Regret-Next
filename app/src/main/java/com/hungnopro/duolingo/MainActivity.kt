@@ -229,26 +229,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun writeConfigAndRestart(tzId: String): Boolean {
-        return try {
-            val shellScript = """
-                # Ghi thẳng vào bộ nhớ chung /sdcard (nơi ZArchiver và mọi app đều truy cập được)
-                echo -n '$tzId' > /sdcard/hugo_tz.txt
-                echo -n '$tzId' > /storage/emulated/0/hugo_tz.txt
-                chmod 666 /sdcard/hugo_tz.txt
-                chmod 666 /storage/emulated/0/hugo_tz.txt
-                
-                # Buộc dừng và mở lại Duolingo
-                am force-stop com.duolingo
-                sleep 1
-                monkey -p com.duolingo -c android.intent.category.LAUNCHER 1
-            """.trimIndent()
+    return try {
+        val shellScript = """
+            # Lưu múi giờ trực tiếp vào RAM hệ thống (System Property tiền tố debug.*)
+            # Hoàn toàn KHÔNG TẠO FILE trên bộ nhớ máy
+            setprop debug.hugo.duolingo.tz '$tzId'
+            
+            # Buộc dừng và mở lại Duolingo
+            am force-stop com.duolingo
+            sleep 1
+            monkey -p com.duolingo -c android.intent.category.LAUNCHER 1
+        """.trimIndent()
 
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
-        }
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
+        process.waitFor() == 0
+    } catch (e: Exception) {
+        false
     }
+}
     
     private fun updateClocks() {
         val nowDevice = ZonedDateTime.now()
