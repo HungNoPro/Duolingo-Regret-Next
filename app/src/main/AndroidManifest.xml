@@ -36,6 +36,11 @@
         <meta-data
             android:name="xposedsharedprefs"
             android:value="true"/>
+        <provider
+        android:name=".ConfigProvider"
+        android:authorities="com.jakting.duolingo.provider"
+        android:exported="true"
+        android:multiprocess="true" />
     </application>
 
 </manifest>
