@@ -3,6 +3,7 @@ package com.hungnopro.duolingo
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -68,10 +69,10 @@ class MainActivity : AppCompatActivity() {
         val btnPresetLocal = findViewById<Button>(R.id.btn_preset_local)
         val btnOpenDuoSettings = findViewById<Button>(R.id.btn_open_duo_settings)
 
-        // Tạo danh sách gọn gàng (bao gồm cả Etc/GMT+12 cho UTC-12)
         buildCompactTimeZoneList()
 
-        val sp = getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
+        val storageContext = getStorageContext()
+        val sp = storageContext.getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
         val savedTz = sp.getString("now_timezone", "Etc/GMT+12") ?: "Etc/GMT+12"
         selectedZoneId = savedTz
 
@@ -93,14 +94,16 @@ class MainActivity : AppCompatActivity() {
             actvTimezone.setText(item.displayName, false)
         }
 
-        // Bấm nút Lưu & Áp dụng
         btnApply.setOnClickListener {
             val textInput = actvTimezone.text.toString().trim()
             val cleanId = resolveCleanZoneId(textInput)
 
             selectedZoneId = cleanId
-            // Lưu trực tiếp vào SharedPreferences của app
-            sp.edit().putString("now_timezone", cleanId).commit()
+            // Lưu đồng thời vào cả Context thường và DeviceProtectedStorageContext
+            getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
+                .edit().putString("now_timezone", cleanId).commit()
+            storageContext.getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
+                .edit().putString("now_timezone", cleanId).commit()
 
             try {
                 activeZoneId = ZoneId.of(cleanId)
@@ -109,12 +112,11 @@ class MainActivity : AppCompatActivity() {
 
             Toast.makeText(
                 this,
-                "Đã lưu múi giờ $cleanId! Hãy vuốt đóng hoặc khởi động lại Duolingo thủ công.",
+                "Đã lưu $cleanId! Hãy đóng hẳn Duolingo và mở lại.",
                 Toast.LENGTH_LONG
             ).show()
         }
 
-        // Phím tắt UTC-12 (Cứu Streak tối đa)
         btnPresetUtc12.setOnClickListener {
             selectedZoneId = "Etc/GMT+12"
             val item = timeZoneItems.firstOrNull { it.id == "Etc/GMT+12" }
@@ -122,7 +124,6 @@ class MainActivity : AppCompatActivity() {
             btnApply.performClick()
         }
 
-        // Phím tắt giờ máy
         btnPresetLocal.setOnClickListener {
             val localId = TimeZone.getDefault().id
             selectedZoneId = localId
@@ -131,7 +132,6 @@ class MainActivity : AppCompatActivity() {
             btnApply.performClick()
         }
 
-        // Mở màn hình Cài đặt ứng dụng Duolingo để người dùng bấm Buộc dừng (Force stop) tiện lợi
         btnOpenDuoSettings.setOnClickListener {
             try {
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -139,8 +139,16 @@ class MainActivity : AppCompatActivity() {
                 }
                 startActivity(intent)
             } catch (e: Exception) {
-                Toast.makeText(this, "Không tìm thấy ứng dụng Duolingo!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Không tìm thấy Duolingo!", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun getStorageContext(): Context {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            createDeviceProtectedStorageContext()
+        } else {
+            this
         }
     }
 
@@ -179,7 +187,6 @@ class MainActivity : AppCompatActivity() {
         timeZoneItems.clear()
         val allIds = TimeZone.getAvailableIDs()
 
-        // Lọc lấy danh sách gọn, giữ lại Etc/GMT+12 đại diện cho UTC-12
         val filtered = allIds.filter {
             (it.contains("/") && !it.startsWith("SystemV/") && !it.startsWith("Etc/")) || it == "Etc/GMT+12"
         }
