@@ -18,6 +18,7 @@ class ConfigProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
+        val cursor = MatrixCursor(arrayOf("timezone"))
         val ctx = context
         var targetTz = "Pacific/Pago_Pago"
 
@@ -26,12 +27,11 @@ class ConfigProvider : ContentProvider() {
             targetTz = sp.getString("now_timezone", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
         }
 
-        val cursor = MatrixCursor(arrayOf("timezone"))
         cursor.addRow(arrayOf(targetTz))
         return cursor
     }
 
-    override fun getType(uri: Uri): String? = null
+    override fun getType(uri: Uri): String? = "text/plain"
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
