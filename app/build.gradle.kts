@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
-    id("kotlin-android")
+    id("org.jetbrains.kotlin.android")
+    // Kích hoạt plugin KSP
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -13,19 +15,6 @@ android {
         targetSdk = 34
         versionCode = 3
         versionName = "3.0"
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-        debug {
-            isMinifyEnabled = false
-        }
     }
 
     compileOptions {
@@ -48,6 +37,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
 
-    // Xposed API (compileOnly)
+    // YukiHookAPI Core (chứa prefs, method hook, encase)
+    implementation("com.highcapable.yukihookapi:api:1.2.1")
+
+    // KSP Processor: Tự động quét @InjectYukiHookWithXposed để sinh ra MainHook_YukiHookXposedInit
+    ksp("com.highcapable.yukihookapi:ksp-xposed:1.2.1")
+
+    // Xposed API (bắt buộc compileOnly để không bị trùng thư viện khi inject)
     compileOnly("de.robv.android.xposed:api:82")
 }
