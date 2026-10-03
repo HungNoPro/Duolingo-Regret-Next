@@ -1,6 +1,5 @@
 package com.hungnopro.duolingo
 
-import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -9,8 +8,12 @@ import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import com.highcapable.yukihookapi.hook.factory.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,7 +51,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
+
+        // Khởi tạo Preferences lưu trữ thông qua kênh YukiHookAPI
+        val pref = prefs("hugo_duolingo")
 
         tvDeviceTime = findViewById(R.id.tv_device_time)
         tvHookTime = findViewById(R.id.tv_hook_time)
@@ -59,11 +72,11 @@ class MainActivity : AppCompatActivity() {
         val btnPresetPago = findViewById<Button>(R.id.btn_preset_pago)
         val btnPresetLocal = findViewById<Button>(R.id.btn_preset_local)
 
-        // 1. Tạo danh sách gọn gàng (mỗi mốc UTC 1 đại diện)
+        // 1. Tạo danh sách múi giờ rút gọn (mỗi mốc UTC 1 đại diện)
         buildCompactTimeZoneList()
 
-        val sp = getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
-        val savedTz = sp.getString("now_timezone", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
+        // 2. Lấy múi giờ đã lưu từ YukiHook prefs
+        val savedTz = pref.getString("now_timezone", "Pacific/Pago_Pago")
         selectedZoneId = savedTz
 
         activeZoneId = try {
@@ -75,36 +88,37 @@ class MainActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, timeZoneItems)
         actvTimezone.setAdapter(adapter)
 
-        // Hiển thị nhãn item tương ứng
+        // Đặt text hiển thị ban đầu
         val currentItem = timeZoneItems.firstOrNull { it.id == savedTz }
         actvTimezone.setText(currentItem?.displayName ?: savedTz, false)
 
-        // Bắt sự kiện chọn item từ danh sách
+        // Bắt sự kiện người dùng chọn item từ danh sách
         actvTimezone.setOnItemClickListener { parent, _, position, _ ->
             val item = parent.getItemAtPosition(position) as TimeZoneItem
             selectedZoneId = item.id
             actvTimezone.setText(item.displayName, false)
         }
 
-        // Bấm nút: Áp dụng & Mở lại Duolingo
+        // Bấm nút: Áp dụng và Khởi động lại Duolingo
         btnApplyRestart.setOnClickListener {
-            // Nếu người dùng tự gõ text hoặc chọn từ list, lọc ra ID sạch
             val rawText = actvTimezone.text.toString().trim()
             val cleanId = extractCleanZoneId(rawText)
 
             if (isValidZoneId(cleanId)) {
                 selectedZoneId = cleanId
-                sp.edit().putString("now_timezone", cleanId).apply()
+                // Ghi vào SharedPreferences của YukiHookAPI
+                pref.edit().putString("now_timezone", cleanId).apply()
                 activeZoneId = ZoneId.of(cleanId)
                 updateClocks()
 
+                // Buộc dừng và mở lại Duolingo bằng Root Shell
                 lifecycleScope.launch(Dispatchers.IO) {
                     val isDone = restartDuolingoApp()
                     withContext(Dispatchers.Main) {
                         if (isDone) {
                             Toast.makeText(
                                 this@MainActivity,
-                                "Đã lưu ($cleanId) & mở lại Duolingo!",
+                                "Đã lưu ($cleanId) & khởi động lại Duolingo!",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
@@ -121,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Phím tắt UTC-11
+        // Phím tắt UTC-11 (Cứu streak)
         btnPresetPago.setOnClickListener {
             selectedZoneId = "Pacific/Pago_Pago"
             val item = timeZoneItems.firstOrNull { it.id == "Pacific/Pago_Pago" }
@@ -129,7 +143,7 @@ class MainActivity : AppCompatActivity() {
             btnApplyRestart.performClick()
         }
 
-        // Phím tắt về giờ máy
+        // Phím tắt về giờ mặc định của máy
         btnPresetLocal.setOnClickListener {
             val localId = TimeZone.getDefault().id
             selectedZoneId = localId
@@ -150,11 +164,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun extractCleanZoneId(input: String): String {
-        // Kiểm tra xem ID có khớp với item nào trong list không
         val matched = timeZoneItems.firstOrNull { it.displayName == input || it.id == input }
         if (matched != null) return matched.id
 
-        // Nếu là dạng "[UTC+07:00] Asia/Bangkok", cắt chuỗi lấy phần sau khoảng trắng
         if (input.contains(" ")) {
             val parts = input.split(" ")
             if (parts.size >= 2 && isValidZoneId(parts[1])) {
@@ -210,10 +222,8 @@ class MainActivity : AppCompatActivity() {
         return try {
             val process = Runtime.getRuntime().exec("su")
             DataOutputStream(process.outputStream).use { os ->
-                // Buộc dừng Duolingo
                 os.writeBytes("am force-stop com.duolingo\n")
                 os.writeBytes("sleep 1\n")
-                // Khởi động lại Duolingo bằng monkey launcher
                 os.writeBytes("monkey -p com.duolingo -c android.intent.category.LAUNCHER 1\n")
                 os.writeBytes("exit\n")
                 os.flush()
