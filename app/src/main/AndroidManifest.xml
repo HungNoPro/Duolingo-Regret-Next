@@ -43,6 +43,13 @@
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
+        <receiver
+            android:name=".TimezoneReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.hungnopro.duolingo.ACTION_GET_TZ" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
