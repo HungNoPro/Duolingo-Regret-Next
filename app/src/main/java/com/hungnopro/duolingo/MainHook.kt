@@ -10,6 +10,7 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
+import java.io.FileInputStream
 import java.time.ZoneId
 import java.util.TimeZone
 
@@ -30,8 +31,7 @@ class MainHook : IXposedHookLoadPackage {
 
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
-                    val targetTz = fetchTargetTimezone(context)
-                    XposedBridge.log("[Hugo-Duolingo] Áp dụng Timezone: $targetTz")
+                    val (targetTz, debugMsg) = readTargetTimezoneWithDebug(context)
 
                     applyHooks(lpparam.classLoader, targetTz)
 
@@ -40,7 +40,7 @@ class MainHook : IXposedHookLoadPackage {
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(
                                 context,
-                                "[Hugo] Múi giờ Duolingo: $targetTz",
+                                "[Hugo] $targetTz ($debugMsg)",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -50,35 +50,30 @@ class MainHook : IXposedHookLoadPackage {
         )
     }
 
-    private fun fetchTargetTimezone(context: Context): String {
-        // 1. Đọc từ thư mục private của chính Duolingo (/data/data/com.duolingo/hugo_tz.txt)
-        try {
-            val file = File(context.dataDir, "hugo_tz.txt")
-            if (file.exists()) {
-                val content = file.readText().trim()
-                if (content.isNotEmpty() && isValidZone(content)) {
-                    XposedBridge.log("[Hugo-Duolingo] Đọc hugo_tz.txt thành công: $content")
-                    return content
+    private fun readTargetTimezoneWithDebug(context: Context): Pair<String, String> {
+        val candidatePaths = listOf(
+            File(context.dataDir, "hugo_tz.txt"),
+            File("/data/data/com.duolingo/hugo_tz.txt"),
+            File("/data/user/0/com.duolingo/hugo_tz.txt")
+        )
+
+        for (file in candidatePaths) {
+            try {
+                if (file.exists()) {
+                    // Đọc bằng FileInputStream để tránh các lỗi buffer của Kotlin File.readText()
+                    val content = FileInputStream(file).bufferedReader().use { it.readText() }.trim()
+                    if (content.isNotEmpty() && isValidZone(content)) {
+                        return Pair(content, "OK")
+                    } else {
+                        return Pair("Pacific/Pago_Pago", "Nội dung sai: $content")
+                    }
                 }
-            } else {
-                XposedBridge.log("[Hugo-Duolingo] Chưa tìm thấy file: ${file.absolutePath}")
+            } catch (e: Throwable) {
+                return Pair("Pacific/Pago_Pago", "Lỗi đọc: ${e.javaClass.simpleName} - ${e.message}")
             }
-        } catch (e: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Lỗi đọc file dataDir: ${e.message}")
         }
 
-        // 2. Dự phòng đường dẫn trực tiếp
-        try {
-            val directFile = File("/data/data/com.duolingo/hugo_tz.txt")
-            if (directFile.exists()) {
-                val content = directFile.readText().trim()
-                if (content.isNotEmpty() && isValidZone(content)) {
-                    return content
-                }
-            }
-        } catch (_: Throwable) {}
-
-        return "Pacific/Pago_Pago"
+        return Pair("Pacific/Pago_Pago", "Không tìm thấy file hugo_tz.txt")
     }
 
     private fun isValidZone(id: String): Boolean {
@@ -93,7 +88,6 @@ class MainHook : IXposedHookLoadPackage {
     private fun applyHooks(classLoader: ClassLoader, tzId: String) {
         val spoofedTz = TimeZone.getTimeZone(tzId)
 
-        // Hook java.util.TimeZone.getDefault()
         try {
             XposedHelpers.findAndHookMethod(
                 "java.util.TimeZone",
@@ -106,10 +100,9 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone thất bại: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone error: ${t.message}")
         }
 
-        // Hook java.time.ZoneId.systemDefault()
         try {
             val spoofedZoneId = ZoneId.of(tzId)
             XposedHelpers.findAndHookMethod(
@@ -123,7 +116,7 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId thất bại: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId error: ${t.message}")
         }
     }
 }
