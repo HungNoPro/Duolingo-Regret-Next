@@ -52,28 +52,26 @@ class MainHook : IXposedHookLoadPackage {
 
     private fun readTargetTimezoneWithDebug(context: Context): Pair<String, String> {
         val candidatePaths = listOf(
-            File(context.dataDir, "hugo_tz.txt"),
-            File("/data/data/com.duolingo/hugo_tz.txt"),
-            File("/data/user/0/com.duolingo/hugo_tz.txt")
+            File("/sdcard/hugo_tz.txt"),
+            File("/storage/emulated/0/hugo_tz.txt"),
+            File(context.filesDir, "hugo_tz.txt"),
+            File(context.dataDir, "hugo_tz.txt")
         )
 
         for (file in candidatePaths) {
             try {
-                if (file.exists()) {
-                    // Đọc bằng FileInputStream để tránh các lỗi buffer của Kotlin File.readText()
-                    val content = FileInputStream(file).bufferedReader().use { it.readText() }.trim()
+                if (file.exists() && file.canRead()) {
+                    val content = file.readText().trim()
                     if (content.isNotEmpty() && isValidZone(content)) {
-                        return Pair(content, "OK")
-                    } else {
-                        return Pair("Pacific/Pago_Pago", "Nội dung sai: $content")
+                        return Pair(content, "OK từ ${file.absolutePath}")
                     }
                 }
             } catch (e: Throwable) {
-                return Pair("Pacific/Pago_Pago", "Lỗi đọc: ${e.javaClass.simpleName} - ${e.message}")
+                return Pair("Pacific/Pago_Pago", "Lỗi đọc ${file.name}: ${e.message}")
             }
         }
 
-        return Pair("Pacific/Pago_Pago", "Không tìm thấy file hugo_tz.txt")
+        return Pair("Pacific/Pago_Pago", "Không tìm thấy hugo_tz.txt ở /sdcard")
     }
 
     private fun isValidZone(id: String): Boolean {
