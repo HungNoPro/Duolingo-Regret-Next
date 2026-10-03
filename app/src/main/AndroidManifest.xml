@@ -1,27 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Cấp quyền để các app khác và hệ thống nhìn thấy Provider -->
+    <!-- Khắc phục Package Visibility trên Android 11 -> 16 -->
     <queries>
         <package android:name="com.duolingo" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
     </queries>
 
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="Duolingo Regret Hugo"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar">
+        android:theme="@style/Theme.DuolingoRegret">
 
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="Hugo Duolingo Timezone Spoof" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="93" />
+        <!-- multiprocess="true" cho phép khởi tạo provider ngay trong tiến trình gọi -->
+        <provider
+            android:name=".HugoProvider"
+            android:authorities="com.hungnopro.duolingo.provider"
+            android:exported="true"
+            android:multiprocess="true"
+            android:grantUriPermissions="true" />
 
         <activity
             android:name=".MainActivity"
@@ -32,14 +34,18 @@
             </intent-filter>
         </activity>
 
-        <!-- Bắt buộc exported=true, grantUriPermissions=true -->
-        <provider
-            android:name=".ConfigProvider"
-            android:authorities="com.hungnopro.duolingo.provider"
-            android:exported="true"
-            android:grantUriPermissions="true"
-            android:multiprocess="true" />
-
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Tùy chỉnh múi giờ Duolingo để bảo vệ streak" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
     </application>
 
 </manifest>
