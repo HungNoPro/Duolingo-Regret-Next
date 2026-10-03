@@ -14,11 +14,11 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Duolingo Regret Next"
+            android:text="Duolingo Regret (Hugo Fork)"
             android:textSize="22sp"
             android:textStyle="bold" />
 
-        <!-- Card Thông Tin Thời Gian -->
+        <!-- Card thời gian -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -60,22 +60,22 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Dropdown chọn Timezone -->
+        <!-- Dropdown Timezone -->
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:hint="Chọn múi giờ từ danh sách">
+            android:hint="Chọn múi giờ">
 
             <AutoCompleteTextView
                 android:id="@+id/actv_timezone"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text" />
+                android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Các nút bấm tắt -->
+        <!-- Phím tắt -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -83,12 +83,12 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/btn_preset_pago"
+                android:id="@+id/btn_preset_utc12"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Cứu Streak (UTC-11)" />
+                android:text="Cứu Streak (UTC-12)" />
 
             <View
                 android:layout_width="8dp"
@@ -103,13 +103,22 @@
                 android:text="Đặt về giờ máy" />
         </LinearLayout>
 
-        <!-- Nút Áp dụng và Khởi động lại -->
+        <!-- Nút Áp dụng -->
         <Button
-            android:id="@+id/btn_apply_and_restart"
+            android:id="@+id/btn_apply"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Áp dụng &amp; Mở lại Duolingo" />
+            android:text="Lưu cấu hình &amp; Áp dụng" />
+
+        <!-- Nút tiện ích mở Thông tin ứng dụng Duolingo để Force Stop 1 chạm -->
+        <Button
+            android:id="@+id/btn_open_duo_settings"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Đi tới Thông tin ứng dụng Duolingo (để Buộc dừng)" />
 
     </LinearLayout>
 </ScrollView>
