@@ -1,26 +1,30 @@
 package com.hungnopro.duolingo
 
+import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.time.ZoneId
 import java.util.TimeZone
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class MainHook : IXposedHookLoadPackage {
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != "com.duolingo") return
 
-        XposedBridge.log("[Hugo-Duolingo] Hooking com.duolingo on Android SDK ${Build.VERSION.SDK_INT}")
+        XposedBridge.log("[Hugo-Duolingo] Hooked into Duolingo process")
 
         XposedHelpers.findAndHookMethod(
             "android.content.ContextWrapper",
@@ -32,8 +36,7 @@ class MainHook : IXposedHookLoadPackage {
 
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
-                    val targetTz = resolveTimezone(context)
-                    XposedBridge.log("[Hugo-Duolingo] Múi giờ được áp dụng: $targetTz")
+                    val (targetTz, debugInfo) = fetchTimezoneWithDiagnostics(context)
 
                     applyTimezoneHooks(lpparam.classLoader, targetTz)
 
@@ -42,7 +45,7 @@ class MainHook : IXposedHookLoadPackage {
                         Handler(Looper.getMainLooper()).post {
                             Toast.makeText(
                                 context,
-                                "[Hugo] Múi giờ Duolingo: $targetTz",
+                                "[Hugo] $targetTz ($debugInfo)",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -52,50 +55,57 @@ class MainHook : IXposedHookLoadPackage {
         )
     }
 
-    private fun resolveTimezone(context: Context): String {
-        val authority = "com.hungnopro.duolingo.provider"
-
-        // 1. Thử gọi trực tiếp bằng String authority (Chuẩn Android 10 -> 16)
+    private fun fetchTimezoneWithDiagnostics(context: Context): Pair<String, String> {
+        // Kênh 1: Dynamic Ordered Broadcast (Giao tiếp bộ nhớ IPC)
         try {
-            val bundle = context.contentResolver.call(authority, "getTimezone", null, null)
-            val tzFromProvider = bundle?.getString("timezone")
-            if (!tzFromProvider.isNullOrEmpty() && isValidZone(tzFromProvider)) {
-                XposedBridge.log("[Hugo-Duolingo] Provider trả về thành công: $tzFromProvider")
-                return tzFromProvider
+            val intent = Intent("com.hungnopro.duolingo.ACTION_GET_TZ").apply {
+                setPackage("com.hungnopro.duolingo")
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
-        } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Lỗi gọi call(authority): ${t.message}")
+
+            val latch = CountDownLatch(1)
+            val resultRef = AtomicReference<String?>(null)
+
+            context.sendOrderedBroadcast(
+                intent,
+                null,
+                object : BroadcastReceiver() {
+                    override fun onReceive(ctx: Context?, resultIntent: Intent?) {
+                        val bundle = getResultExtras(true)
+                        val tz = bundle?.getString("timezone") ?: resultData
+                        resultRef.set(tz)
+                        latch.countDown()
+                    }
+                },
+                null,
+                Activity.RESULT_OK,
+                null,
+                null
+            )
+
+            // Đợi tối đa 350ms để nhận phản hồi từ module
+            latch.await(350, TimeUnit.MILLISECONDS)
+            val tz = resultRef.get()
+            if (!tz.isNullOrEmpty() && isValidZone(tz)) {
+                return Pair(tz, "IPC-Broadcast OK")
+            }
+        } catch (e: Throwable) {
+            XposedBridge.log("[Hugo-Duolingo] Broadcast error: ${e.message}")
         }
 
-        // 2. Dự phòng bằng Uri
+        // Kênh 2: ContentProvider call (dự phòng)
         try {
-            val uri = Uri.parse("content://$authority")
+            val uri = Uri.parse("content://com.hungnopro.duolingo.provider")
             val bundle = context.contentResolver.call(uri, "getTimezone", null, null)
-            val tzFromUri = bundle?.getString("timezone")
-            if (!tzFromUri.isNullOrEmpty() && isValidZone(tzFromUri)) {
-                return tzFromUri
+            val tz = bundle?.getString("timezone")
+            if (!tz.isNullOrEmpty() && isValidZone(tz)) {
+                return Pair(tz, "Provider OK")
             }
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            return Pair("Etc/GMT+12", "Lỗi: ${e.javaClass.simpleName}")
+        }
 
-        // 3. Dự phòng qua createPackageContext
-        try {
-            val moduleContext = context.createPackageContext(
-                "com.hungnopro.duolingo",
-                Context.CONTEXT_IGNORE_SECURITY
-            )
-            val storageContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                moduleContext.createDeviceProtectedStorageContext()
-            } else {
-                moduleContext
-            }
-            val sp = storageContext.getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
-            val tzFromContext = sp.getString("now_timezone", null)
-            if (!tzFromContext.isNullOrEmpty() && isValidZone(tzFromContext)) {
-                return tzFromContext
-            }
-        } catch (_: Throwable) {}
-
-        return "Etc/GMT+12"
+        return Pair("Etc/GMT+12", "Chưa nhận phản hồi từ module")
     }
 
     private fun isValidZone(id: String): Boolean {
@@ -110,7 +120,6 @@ class MainHook : IXposedHookLoadPackage {
     private fun applyTimezoneHooks(classLoader: ClassLoader, tzId: String) {
         val spoofedTz = TimeZone.getTimeZone(tzId)
 
-        // Hook java.util.TimeZone.getDefault()
         try {
             XposedHelpers.findAndHookMethod(
                 "java.util.TimeZone",
@@ -123,10 +132,9 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone lỗi: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone error: ${t.message}")
         }
 
-        // Hook java.time.ZoneId.systemDefault()
         try {
             val spoofedZoneId = ZoneId.of(tzId)
             XposedHelpers.findAndHookMethod(
@@ -140,7 +148,7 @@ class MainHook : IXposedHookLoadPackage {
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId lỗi: ${t.message}")
+            XposedBridge.log("[Hugo-Duolingo] Hook java.time.ZoneId error: ${t.message}")
         }
     }
 }
