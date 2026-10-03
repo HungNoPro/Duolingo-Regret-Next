@@ -69,6 +69,9 @@ class MainActivity : AppCompatActivity() {
         val btnPresetPago = findViewById<Button>(R.id.btn_preset_pago)
         val btnPresetLocal = findViewById<Button>(R.id.btn_preset_local)
 
+        // Chủ động kích hoạt popup xin quyền Root khi vừa vào app
+        requestRootPermissionOnInit()
+
         buildCompactTimeZoneList()
 
         val sp = getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
@@ -93,7 +96,6 @@ class MainActivity : AppCompatActivity() {
             actvTimezone.setText(item.displayName, false)
         }
 
-        // Bấm nút: Áp dụng và Mở lại Duolingo
         btnApplyRestart.setOnClickListener {
             val textInput = actvTimezone.text.toString().trim()
             val cleanId = resolveCleanZoneId(textInput)
@@ -112,13 +114,16 @@ class MainActivity : AppCompatActivity() {
                     if (ok) {
                         Toast.makeText(this@MainActivity, "Đã lưu ($cleanId) & mở Duolingo!", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(this@MainActivity, "Chưa cấp quyền Root!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "LỖI: Chưa được cấp quyền Root (SU)! Hãy cấp quyền trong Magisk/KernelSU.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
         }
 
-        // Phím tắt UTC-11
         btnPresetPago.setOnClickListener {
             selectedZoneId = "Pacific/Pago_Pago"
             val item = timeZoneItems.firstOrNull { it.id == "Pacific/Pago_Pago" }
@@ -126,7 +131,6 @@ class MainActivity : AppCompatActivity() {
             btnApplyRestart.performClick()
         }
 
-        // Phím tắt giờ máy
         btnPresetLocal.setOnClickListener {
             val localId = TimeZone.getDefault().id
             selectedZoneId = localId
@@ -144,6 +148,30 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(updateClockRunnable)
+    }
+
+    private fun requestRootPermissionOnInit() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val hasRoot = checkSuAvailable()
+            withContext(Dispatchers.Main) {
+                if (!hasRoot) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Cảnh báo: App cần quyền Root (SU) để ghi múi giờ và khởi động lại Duolingo!",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun checkSuAvailable(): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+            process.waitFor() == 0
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun resolveCleanZoneId(input: String): String {
@@ -200,17 +228,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Dùng Root ghi file cấu hình vào thẳng thư mục nội bộ của com.duolingo,
-     * sau đó buộc dừng và mở lại Duolingo.
-     */
     private fun writeConfigAndRestart(tzId: String): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su")
             DataOutputStream(process.outputStream).use { os ->
                 val targetFile = "/data/data/com.duolingo/hugo_tz.txt"
 
-                // 1. Ghi múi giờ trực tiếp vào thư mục nội bộ của chính Duolingo
+                // 1. Tạo file và gán quyền trực tiếp trong thư mục dữ liệu Duolingo
                 os.writeBytes("echo -n '$tzId' > $targetFile\n")
                 os.writeBytes("chmod 666 $targetFile\n")
 
