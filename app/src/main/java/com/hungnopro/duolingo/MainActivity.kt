@@ -1,5 +1,6 @@
 package com.hungnopro.duolingo
 
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,7 +14,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import com.highcapable.yukihookapi.hook.factory.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,9 +60,6 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        // Khởi tạo Preferences lưu trữ thông qua kênh YukiHookAPI
-        val pref = prefs("hugo_duolingo")
-
         tvDeviceTime = findViewById(R.id.tv_device_time)
         tvHookTime = findViewById(R.id.tv_hook_time)
         tvResetCountdown = findViewById(R.id.tv_reset_countdown)
@@ -72,11 +69,11 @@ class MainActivity : AppCompatActivity() {
         val btnPresetPago = findViewById<Button>(R.id.btn_preset_pago)
         val btnPresetLocal = findViewById<Button>(R.id.btn_preset_local)
 
-        // 1. Tạo danh sách múi giờ rút gọn (mỗi mốc UTC 1 đại diện)
+        // 1. Tạo danh sách gọn (mỗi mốc UTC 1 đại diện)
         buildCompactTimeZoneList()
 
-        // 2. Lấy múi giờ đã lưu từ YukiHook prefs
-        val savedTz = pref.getString("now_timezone", "Pacific/Pago_Pago")
+        val sp = getSharedPreferences("hugo_duolingo", Context.MODE_PRIVATE)
+        val savedTz = sp.getString("now_timezone", "Pacific/Pago_Pago") ?: "Pacific/Pago_Pago"
         selectedZoneId = savedTz
 
         activeZoneId = try {
@@ -88,54 +85,55 @@ class MainActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, timeZoneItems)
         actvTimezone.setAdapter(adapter)
 
-        // Đặt text hiển thị ban đầu
+        // Hiển thị tên đầy đủ trong ô input
         val currentItem = timeZoneItems.firstOrNull { it.id == savedTz }
         actvTimezone.setText(currentItem?.displayName ?: savedTz, false)
 
-        // Bắt sự kiện người dùng chọn item từ danh sách
         actvTimezone.setOnItemClickListener { parent, _, position, _ ->
             val item = parent.getItemAtPosition(position) as TimeZoneItem
             selectedZoneId = item.id
             actvTimezone.setText(item.displayName, false)
         }
 
-        // Bấm nút: Áp dụng và Khởi động lại Duolingo
+        // Bấm nút: Áp dụng và Mở lại Duolingo
         btnApplyRestart.setOnClickListener {
             val rawText = actvTimezone.text.toString().trim()
             val cleanId = extractCleanZoneId(rawText)
 
             if (isValidZoneId(cleanId)) {
                 selectedZoneId = cleanId
-                // Ghi vào SharedPreferences của YukiHookAPI
-                pref.edit().putString("now_timezone", cleanId).apply()
+                // Lưu vào SharedPreferences của app
+                sp.edit().putString("now_timezone", cleanId).apply()
+                
+                // CẬP NHẬT NGAY LẬP TỨC activeZoneId để đồng hồ giao diện đổi ngay!
                 activeZoneId = ZoneId.of(cleanId)
                 updateClocks()
 
-                // Buộc dừng và mở lại Duolingo bằng Root Shell
+                // Gửi lệnh Root: Setprop hệ thống + Force Stop + Restart Duolingo
                 lifecycleScope.launch(Dispatchers.IO) {
-                    val isDone = restartDuolingoApp()
+                    val isDone = applyTimezoneAndRestartDuolingo(cleanId)
                     withContext(Dispatchers.Main) {
                         if (isDone) {
                             Toast.makeText(
                                 this@MainActivity,
-                                "Đã lưu ($cleanId) & khởi động lại Duolingo!",
+                                "Đã lưu ($cleanId) & mở lại Duolingo!",
                                 Toast.LENGTH_SHORT
                             ).show()
                         } else {
                             Toast.makeText(
                                 this@MainActivity,
-                                "Đã lưu ($cleanId) - Chưa cấp quyền Root!",
+                                "Đã lưu ($cleanId) - Hãy cấp quyền Root!",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
                     }
                 }
             } else {
-                Toast.makeText(this, "Múi giờ không hợp lệ!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Múi giờ không hợp lệ: $cleanId", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Phím tắt UTC-11 (Cứu streak)
+        // Phím tắt UTC-11
         btnPresetPago.setOnClickListener {
             selectedZoneId = "Pacific/Pago_Pago"
             val item = timeZoneItems.firstOrNull { it.id == "Pacific/Pago_Pago" }
@@ -167,10 +165,11 @@ class MainActivity : AppCompatActivity() {
         val matched = timeZoneItems.firstOrNull { it.displayName == input || it.id == input }
         if (matched != null) return matched.id
 
+        // Nếu chuỗi có dạng "[UTC+07:00] Asia/Bangkok", bóc tách lấy ID phía sau
         if (input.contains(" ")) {
             val parts = input.split(" ")
-            if (parts.size >= 2 && isValidZoneId(parts[1])) {
-                return parts[1]
+            if (parts.size >= 2 && isValidZoneId(parts.last())) {
+                return parts.last()
             }
         }
         return input
@@ -218,12 +217,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun restartDuolingoApp(): Boolean {
+    private fun applyTimezoneAndRestartDuolingo(tzId: String): Boolean {
         return try {
             val process = Runtime.getRuntime().exec("su")
             DataOutputStream(process.outputStream).use { os ->
+                // 1. Ghi múi giờ vào property toàn cục hệ thống (mọi app đều đọc được mà không lo SELinux)
+                os.writeBytes("setprop persist.hugo.duolingo.tz '$tzId'\n")
+
+                // 2. Ghi file phẳng dự phòng
+                os.writeBytes("echo '$tzId' > /data/local/tmp/hugo_tz.txt\n")
+                os.writeBytes("chmod 666 /data/local/tmp/hugo_tz.txt\n")
+
+                // 3. Buộc dừng Duolingo
                 os.writeBytes("am force-stop com.duolingo\n")
                 os.writeBytes("sleep 1\n")
+
+                // 4. Mở lại Duolingo
                 os.writeBytes("monkey -p com.duolingo -c android.intent.category.LAUNCHER 1\n")
                 os.writeBytes("exit\n")
                 os.flush()
