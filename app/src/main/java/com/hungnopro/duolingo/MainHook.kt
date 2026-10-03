@@ -6,6 +6,7 @@ import android.os.Looper
 import android.widget.Toast
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
@@ -29,7 +30,8 @@ class MainHook : IXposedHookLoadPackage {
 
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args[0] as? Context ?: return
-                    val targetTz = getSystemPropTimezone()
+                    val targetTz = fetchTargetTimezone()
+                    XposedBridge.log("[Hugo-Duolingo] Timezone nạp cho Duolingo: $targetTz")
 
                     applyHooks(lpparam.classLoader, targetTz)
 
@@ -48,21 +50,20 @@ class MainHook : IXposedHookLoadPackage {
         )
     }
 
-    private fun getSystemPropTimezone(): String {
+    private fun fetchTargetTimezone(): String {
         return try {
-            val systemPropertiesClass = Class.forName("android.os.SystemProperties")
-            val getMethod = systemPropertiesClass.getMethod("get", String::class.java, String::class.java)
-            // Đọc property debug.* (property này được Android cho phép đọc tự do không bị chặn SELinux)
-            val tz = getMethod.invoke(null, "debug.hugo.duolingo.tz", "") as String
-            if (tz.isNotEmpty() && isValidZone(tz)) {
-                XposedBridge.log("[Hugo-Duolingo] Doc thanh cong tu SystemProperty: $tz")
+            // Nạp SharedPreferences từ module com.hungnopro.duolingo qua LSPosed bridge
+            val xsp = XSharedPreferences("com.hungnopro.duolingo", "hugo_duolingo")
+            xsp.reload()
+            val tz = xsp.getString("now_timezone", "Etc/GMT+12")
+            if (!tz.isNullOrEmpty() && isValidZone(tz)) {
                 tz
             } else {
-                "Pacific/Pago_Pago"
+                "Etc/GMT+12"
             }
-        } catch (t: Throwable) {
-            XposedBridge.log("[Hugo-Duolingo] Loi SystemProperties: ${t.message}")
-            "Pacific/Pago_Pago"
+        } catch (e: Throwable) {
+            XposedBridge.log("[Hugo-Duolingo] Lỗi nạp XSharedPreferences: ${e.message}")
+            "Etc/GMT+12"
         }
     }
 
@@ -78,6 +79,7 @@ class MainHook : IXposedHookLoadPackage {
     private fun applyHooks(classLoader: ClassLoader, tzId: String) {
         val spoofedTz = TimeZone.getTimeZone(tzId)
 
+        // 1. Hook java.util.TimeZone.getDefault()
         try {
             XposedHelpers.findAndHookMethod(
                 "java.util.TimeZone",
@@ -93,6 +95,7 @@ class MainHook : IXposedHookLoadPackage {
             XposedBridge.log("[Hugo-Duolingo] Hook java.util.TimeZone error: ${t.message}")
         }
 
+        // 2. Hook java.time.ZoneId.systemDefault()
         try {
             val spoofedZoneId = ZoneId.of(tzId)
             XposedHelpers.findAndHookMethod(
